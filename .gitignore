@@ -1,0 +1,25 @@
+# --- Local-only dev scaffolding (guardrails + task + env; not for publication / not upstream) ---
+# These drive the agent locally; they should never end up in a Haiku patch or on the remote.
+.claude/
+CLAUDE.md
+RULES.md
+task.md
+ENVIRONMENT.md
+run-vm.sh
+
+# VM images (never commit — huge; shared VM lives in the sibling jack2 project)
+*.iso
+*.qcow2
+*.img
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+__pycache__/
+*.pyc
+
+# Build / scratch artifacts (the driver is built inside the Haiku tree, not here)
+/build/
+*.o
+*.log
+generated/
