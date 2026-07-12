@@ -23,3 +23,8 @@ __pycache__/
 *.o
 *.log
 generated/
+
+# Third-party reference material (the xHCI spec is copyrighted and large — link,
+# don't vendor it). Keep only the stub that says where to get it.
+/refs/*
+!/refs/README.md
