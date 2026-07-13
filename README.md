@@ -48,15 +48,35 @@ welcome.
 
 ## Install
 
-The stock `xhci` module takes precedence over a plain non-packaged copy, so installing the
-override requires a specific packagefs blocklist step. The full procedure — build, install,
-the blocklist rationale, verification, and rollback — is in **[dist/INSTALL.md](dist/INSTALL.md)**:
+Full procedure — build, install, the blocklist rationale, verification, and rollback — is in
+**[dist/INSTALL.md](dist/INSTALL.md)**. The short version:
+
+**1. Build and install the overrides** (on the nightly you will run — the binaries are
+ABI-tied to it):
 
 ```sh
 cd dist
 HREV=hrev59846 HAIKU_SRC=$HOME/haiku ./build-driver.sh
 ./install-driver.sh
-# then reboot and verify
+```
+
+**2. Make the `xhci` override load.** The `usb_audio` driver override loads on a plain
+reboot, but `xhci` is a bus-manager module that the boot loader **preloads** before the
+packagefs blocklist applies — so a plain reboot keeps running the stock `xhci`. Pick one:
+
+- **Per boot (evaluation):** reboot and tap **Space** at power-on to reach the boot menu →
+  *Select safe mode options → Blacklist entries → `add-ons` → `kernel` → `boot`* → toggle
+  **`xhci`** → boot. Applied before the preload, so your override wins. Repeat each boot.
+- **Persistent:** bake the patched `xhci` into the `haiku` system package
+  (`jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg`, then swap it in — never `cp` onto the
+  live package). See INSTALL.md Option B.
+
+**3. Verify:**
+
+```sh
+listusb                       # your UAC2 interface enumerates
+ls /dev/audio/hmulti/          # an audio node appears
+listimage | grep xhci          # the override shows a PATH (stock preload shows none)
 ```
 
 This is the foundation of the audio stack; once USB audio works, install the JACK server
