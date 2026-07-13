@@ -73,14 +73,53 @@ Package haiku {
 ```
 
 **Both** paths matter. `xhci` is also **preloaded by the boot loader** via the symlink
-`add-ons/kernel/boot/xhci -> ../busses/usb/xhci`; if only the bus path is blocked, the stock
-binary is preloaded before packagefs applies the blocklist and the override never wins.
-Blocking `boot/xhci` stops that preload (USB is dead only at the boot *menu*, which is fine
-when booting from the internal disk with a built-in keyboard).
+`add-ons/kernel/boot/xhci -> ../busses/usb/xhci`. `install-driver.sh` writes this file if it
+does not exist (and prints the block to merge by hand if you already have one).
 
-`install-driver.sh` writes this file if it does not exist. If you already have a
-`packages` settings file, it prints the block for you to merge by hand rather than
-clobbering your settings.
+**However — the file blocklist alone is not enough for `xhci` on current nightlies.**
+The boot loader preloads `xhci` into memory very early, and in practice it does **not** honor
+the `settings/packages` block before that preload (verified on hrev59846: after installing and
+rebooting, `listimage` still shows `xhci` with *no* path = the stock preloaded binary, and the
+controller-start line lacks the `[OVERRIDE-BUILD]` marker). The kernel cannot unload an
+already-preloaded module, so the file block — which the *runtime* packagefs does apply — comes
+too late for `xhci`. The `usb_audio` **driver** override still loads correctly regardless
+(different loader, prefers non-packaged); only `xhci` is affected.
+
+Two ways to actually run the override, from easiest-per-boot to permanent:
+
+### Option A — Boot-menu blacklist (per boot)
+
+Reboot and, from the moment of power-on, **tap the Space bar repeatedly** until the boot menu
+appears. (On EFI, *holding Shift does nothing*; the loader only polls for a Space keystroke in
+a brief window. Avoid Esc — that selects debug output.) Then:
+
+**Select safe mode options → Blacklist entries → `add-ons` → `kernel` → `boot` →** toggle
+**`xhci`**, return to the main menu, and boot.
+
+This is applied via `kernel_args` **before** the preload, so the stock `xhci` is never loaded
+and the runtime module manager picks up your non-packaged override. It must be repeated **each
+boot** — good for evaluation, not for a permanent install.
+
+### Option B — Rebuild the system package (persistent)
+
+Bake the patched `xhci` into the `haiku` package itself so the boot loader preloads *your*
+build with no blocklist and no menu:
+
+```sh
+cd ~/haiku
+jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg   # needs the LIBRARY_PATH export build-driver.sh sets
+# then swap it in — NEVER cp onto the live package file (it corrupts the running packagefs):
+cp generated/objects/haiku/x86_64/packaging/packages/haiku.hpkg \
+   /boot/system/packages/.haiku-new.tmp
+mv /boot/system/packages/.haiku-new.tmp \
+   /boot/system/packages/haiku-*-x86_64.hpkg     # rename keeps the old inode live until reboot
+```
+
+Reboot: the preloaded `xhci` is now the patched one (`listimage` shows a path / the
+`[OVERRIDE-BUILD]` marker appears), persistently. This pins the machine to the hrev the
+package was built for; keep the replaced package as a backup and do not let a Haiku update
+overwrite it. This is the route for a lasting install; the `settings/packages` block and the
+non-packaged `xhci` are not needed once the package carries the patch.
 
 ## 3. Verify (after reboot)
 
@@ -91,9 +130,11 @@ listusb                                # your UAC2 interface should now enumerat
 ls /dev/audio/hmulti/                   # an audio node should appear
 ```
 
-If `grep OVERRIDE-BUILD` finds nothing, the stock `xhci` is still loaded — recheck the
-blocklist (both paths) and that the override is at
-`~/config/non-packaged/add-ons/kernel/busses/usb/xhci`.
+If `grep OVERRIDE-BUILD` finds nothing, the stock `xhci` is still preloaded — the file
+blocklist did not stop the preload (expected on current nightlies). Use **Option A**
+(boot-menu blacklist) for this boot, or **Option B** (rebuild the system package) for a
+permanent fix. `usb_audio` and the audio node work either way; without the `xhci` override,
+isochronous capture is unstable under load.
 
 Then a JACK smoke test:
 
