@@ -63,6 +63,12 @@ At the machine, use **Deskbar → Shut Down → Restart System**, or in a Termin
 shutdown -r
 ```
 
+Reboot and tap **Space** at power-on to reach the boot menu →
+  *Select safe mode options → `Disable system components` → `add-ons` → `kernel` → `boot`* → toggle
+  **`xhci`** → boot. Applied before the preload, so your override wins. Repeat each boot.
+- **Persistent:** bake the patched `xhci` into the `haiku` system package
+  (`jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg`, then swap it in — never `cp` onto the
+  live package). See INSTALL.md Option B.
 Over a headless ssh session `shutdown -r` frequently fails; there, use the kernel call
 instead (needs the `python3` package, which the build already pulled in):
 
@@ -115,7 +121,7 @@ Reboot and, from the moment of power-on, **tap the Space bar repeatedly** until 
 appears. (On EFI, *holding Shift does nothing*; the loader only polls for a Space keystroke in
 a brief window. Avoid Esc — that selects debug output.) Then:
 
-**Select safe mode options → Blacklist entries → `add-ons` → `kernel` → `boot` →** toggle
+**Select safe mode options → Disable system components → `add-ons` → `kernel` → `boot` →** toggle
 **`xhci`**, return to the main menu, and boot.
 
 This is applied via `kernel_args` **before** the preload, so the stock `xhci` is never loaded

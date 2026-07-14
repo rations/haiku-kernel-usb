@@ -80,7 +80,7 @@ reboot, but `xhci` is a bus-manager module that the boot loader **preloads** bef
 packagefs blocklist applies — so a plain reboot keeps running the stock `xhci`. Pick one:
 
 - **Per boot (evaluation):** reboot and tap **Space** at power-on to reach the boot menu →
-  *Select safe mode options → Blacklist entries → `add-ons` → `kernel` → `boot`* → toggle
+  *Select safe mode options → Disable system components → `add-ons` → `kernel` → `boot`* → toggle
   **`xhci`** → boot. Applied before the preload, so your override wins. Repeat each boot.
 - **Persistent:** bake the patched `xhci` into the `haiku` system package
   (`jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg`, then swap it in — never `cp` onto the
