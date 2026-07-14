@@ -20,10 +20,24 @@ Three add-ons are involved:
 They install as **non-packaged overrides** so the base system package is left intact and
 the change is fully reversible.
 
-## 0. Prerequisites (on the running nightly)
+## 0. Prerequisites — get the sources (on the running nightly)
 
-- The Haiku source on the **`usb-audio-uac2`** branch at `$HOME/haiku` (rsync or clone).
-- Build tools (the build script installs these): `jam nasm gcc_syslibs_devel zlib_devel zstd_devel`.
+A stock Haiku nightly has no `git`, and the driver is compiled from a Haiku source checkout
+on the **`usb-audio-uac2`** branch. Fetch both, plus this repo (the machine must be online):
+
+```sh
+# git (the Haiku build tools are installed by build-driver.sh in step 1)
+pkgman install -y git
+
+# the Haiku source with the driver changes (shallow clone; still a few GB)
+git clone -b usb-audio-uac2 --depth 1 https://github.com/rations/haiku.git ~/haiku
+
+# this repo (build/install scripts)
+git clone https://github.com/rations/haiku-kernel-usb ~/haiku-kernel-usb
+```
+
+The build tools (`jam nasm gcc_syslibs_devel zlib_devel zstd_devel`) do not need a separate
+install — `build-driver.sh` runs `pkgman install -y` for them.
 
 ## 1. Build
 

@@ -49,18 +49,33 @@ welcome.
 ## Install
 
 Full procedure — build, install, the blocklist rationale, verification, and rollback — is in
-**[dist/INSTALL.md](dist/INSTALL.md)**. The short version:
+**[dist/INSTALL.md](dist/INSTALL.md)**. The short version, starting from a fresh Haiku install:
 
-**1. Build and install the overrides** (on the nightly you will run — the binaries are
+**1. Get the tools and sources.** A stock Haiku nightly has neither `git` nor the build
+tools, and the driver is compiled from a Haiku source checkout on the `usb-audio-uac2`
+branch — so fetch all of it first (the machine must be online):
+
+```sh
+# git + Haiku build tools
+pkgman install -y git jam nasm gcc_syslibs_devel zlib_devel zstd_devel
+
+# the Haiku source with the driver changes (shallow clone; still a few GB)
+git clone -b usb-audio-uac2 --depth 1 https://github.com/rations/haiku.git ~/haiku
+
+# this repo (the build/install scripts)
+git clone https://github.com/rations/haiku-kernel-usb ~/haiku-kernel-usb
+```
+
+**2. Build and install the overrides** (on the nightly you will run — the binaries are
 ABI-tied to it):
 
 ```sh
-cd dist
+cd ~/haiku-kernel-usb/dist
 HREV=hrev59846 HAIKU_SRC=$HOME/haiku ./build-driver.sh
 ./install-driver.sh
 ```
 
-**2. Make the `xhci` override load.** The `usb_audio` driver override loads on a plain
+**3. Make the `xhci` override load.** The `usb_audio` driver override loads on a plain
 reboot, but `xhci` is a bus-manager module that the boot loader **preloads** before the
 packagefs blocklist applies — so a plain reboot keeps running the stock `xhci`. Pick one:
 
@@ -71,7 +86,7 @@ packagefs blocklist applies — so a plain reboot keeps running the stock `xhci`
   (`jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg`, then swap it in — never `cp` onto the
   live package). See INSTALL.md Option B.
 
-**3. Verify:**
+**4. Verify:**
 
 ```sh
 listusb                       # your UAC2 interface enumerates
