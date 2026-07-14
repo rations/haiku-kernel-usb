@@ -35,11 +35,17 @@ if [ ! -d "$HAIKU_SRC" ]; then
 	exit 1
 fi
 
-# Build prerequisites (idempotent; -y is non-interactive). jam is the build driver.
-pkgman install -y jam nasm gcc_syslibs_devel zlib_devel zstd_devel || true
+# Build prerequisites (idempotent; -y is non-interactive). jam is the build driver;
+# Haiku's configure requires a Python interpreter >= 3.10 for its generated sources.
+pkgman install -y jam nasm gcc_syslibs_devel zlib_devel zstd_devel python3.10 || true
 
 cd "$HAIKU_SRC"
-[ -d generated ] || ./configure
+# configure looks for python3/python on PATH; pass HOST_PYTHON explicitly so it works
+# even when the package installed only a versioned "python3.10" binary.
+if [ ! -d generated ]; then
+	HOST_PYTHON="$(command -v python3 || command -v python3.10 || command -v python)"
+	HOST_PYTHON="$HOST_PYTHON" ./configure
+fi
 
 # The tree is typically rsynced without .git, so jam cannot read the revision; pass
 # it explicitly (any value works, but use the real hrev for a truthful build stamp).

@@ -55,15 +55,23 @@ Stages the three linked binaries into `$HOME/uac2-driver-staged`.
 ```
 
 This copies the overrides into `~/config/non-packaged/add-ons/...` and writes the
-packagefs blocklist (next section). Then **reboot**:
+packagefs blocklist (next section). Then **reboot**.
+
+At the machine, use **Deskbar → Shut Down → Restart System**, or in a Terminal:
+
+```sh
+shutdown -r
+```
+
+Over a headless ssh session `shutdown -r` frequently fails; there, use the kernel call
+instead (needs the `python3` package, which the build already pulled in):
 
 ```sh
 python3 -c "import ctypes; ctypes.CDLL('libroot.so')._kern_shutdown(1)"
 ```
 
-(A plain `shutdown -r` frequently fails from a non-desktop ssh session; the `_kern_shutdown`
-call kills user teams, syncs, and reboots reliably. `python3` lives in its own package so it
-keeps working even if the system package is mid-swap.)
+It kills user teams, syncs, and reboots reliably, and `python3` lives in its own package so
+it keeps working even if the system package is mid-swap.
 
 ## Why the xHCI blocklist is required (the trap)
 

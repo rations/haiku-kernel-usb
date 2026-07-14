@@ -56,8 +56,8 @@ tools, and the driver is compiled from a Haiku source checkout on the `usb-audio
 branch — so fetch all of it first (the machine must be online):
 
 ```sh
-# git + Haiku build tools
-pkgman install -y git jam nasm gcc_syslibs_devel zlib_devel zstd_devel
+# git + Haiku build tools (configure needs Python >= 3.10)
+pkgman install -y git jam nasm gcc_syslibs_devel zlib_devel zstd_devel python3.10
 
 # the Haiku source with the driver changes (shallow clone; still a few GB)
 git clone -b usb-audio-uac2 --depth 1 https://github.com/rations/haiku.git ~/haiku
