@@ -6,8 +6,10 @@ JACK / JackDAW audio stack — without them `jackd -d hmulti` has no USB audio d
 open.
 
 > **ABI warning.** Kernel add-ons are tied to the exact Haiku revision they are built
-> on. Build and install them on the **same nightly you will run** (these instructions
-> target **hrev59846 x86_64**). For a different nightly, rebuild with `build-driver.sh`.
+> on. Build and install them on the **same nightly you will run**. Nothing here is
+> pinned to a particular revision — `build-driver.sh` detects the revision and stamps
+> it into the staged build, and `install-driver.sh` refuses to install a build that
+> does not match the running system. After a nightly update, just re-run both.
 
 Three add-ons are involved:
 
@@ -37,16 +39,39 @@ git clone https://github.com/rations/haiku-kernel-usb ~/haiku-kernel-usb
 ```
 
 The build tools (`jam nasm gcc_syslibs_devel zlib_devel zstd_devel`) do not need a separate
-install — `build-driver.sh` runs `pkgman install -y` for them.
+install — `build-driver.sh` checks which of them are present and installs only the missing
+ones. (It deliberately does **not** run a blanket `pkgman install`: while the HaikuPorts
+repositories are mid-transition to R1/beta6, that can drag in a partial upgrade and move the
+system off the very revision you are building for.)
 
 ## 1. Build
 
 ```sh
 cd ~/haiku-kernel-usb/dist
-HREV=hrev59846 HAIKU_SRC=$HOME/haiku ./build-driver.sh
+./build-driver.sh
 ```
 
-Stages the three linked binaries into `$HOME/uac2-driver-staged`.
+Stages the three linked binaries into `$HOME/uac2-driver-staged`, together with a
+`BUILT-FOR` stamp recording the revision and architecture they were built for.
+
+The revision is detected, in this order:
+
+1. `HREV=` in the environment, if you set it;
+2. `git describe --tags --match=hrev*` in the source tree — the same method Haiku's own
+   build uses (`build/scripts/determine_haiku_revision`). A `--depth 1` clone has no tags,
+   so this is usually skipped;
+3. the running kernel's revision, which is the first field of `uname -v`.
+
+If the source tree *does* carry tags and its revision differs from the running system, the
+script says so — that combination builds add-ons against headers from a different nightly
+than the one they will load into.
+
+Everything else is detected too: the packaging architecture comes from `getarch -p`, and
+the build directory from `$HAIKU_OUTPUT_DIR` (default `<tree>/generated`). Overridable:
+
+```sh
+HAIKU_SRC=$HOME/haiku STAGE=$HOME/uac2-driver-staged HREV=hrev60123 ./build-driver.sh
+```
 
 ## 2. Install
 
@@ -54,21 +79,25 @@ Stages the three linked binaries into `$HOME/uac2-driver-staged`.
 ./install-driver.sh
 ```
 
-This copies the overrides into `~/config/non-packaged/add-ons/...` and writes the
-packagefs blocklist (next section). Then **reboot**.
+This first compares the staged `BUILT-FOR` stamp against the running system and **stops if
+they disagree** (rebuild, or `FORCE=1 ./install-driver.sh` if you are sure). It then
+**removes any override a previous run installed** — so re-running after a nightly update
+replaces the old add-ons rather than leaving a stale build behind — copies the new ones into
+`~/config/non-packaged/add-ons/...`, and writes the packagefs blocklist (next section).
+Then **reboot**.
 
-At the machine, use **Deskbar → Shut Down → Restart System**, or in a Terminal:
+To take the overrides back out again:
+
+```sh
+./install-driver.sh --uninstall
+```
+
+At the machine, reboot with **Deskbar → Shut Down → Restart System**, or in a Terminal:
 
 ```sh
 shutdown -r
 ```
 
-Reboot and tap **Space** at power-on to reach the boot menu →
-  *Select safe mode options → `Disable system components` → `add-ons` → `kernel` → `boot`* → toggle
-  **`xhci`** → boot. Applied before the preload, so your override wins. Repeat each boot.
-- **Persistent:** bake the patched `xhci` into the `haiku` system package
-  (`jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg`, then swap it in — never `cp` onto the
-  live package). See INSTALL.md Option B.
 Over a headless ssh session `shutdown -r` frequently fails; there, use the kernel call
 instead (needs the `python3` package, which the build already pulled in):
 
@@ -106,9 +135,10 @@ does not exist (and prints the block to merge by hand if you already have one).
 
 **However — the file blocklist alone is not enough for `xhci` on current nightlies.**
 The boot loader preloads `xhci` into memory very early, and in practice it does **not** honor
-the `settings/packages` block before that preload (verified on hrev59846: after installing and
-rebooting, `listimage` still shows `xhci` with *no* path = the stock preloaded binary, and the
-controller-start line lacks the `[OVERRIDE-BUILD]` marker). The kernel cannot unload an
+the `settings/packages` block before that preload (first verified on hrev59846, and unchanged
+since: after installing and rebooting, `listimage` still shows `xhci` with *no* path = the
+stock preloaded binary, and the controller-start line lacks the
+`[OVERRIDE-BUILD]` marker). The kernel cannot unload an
 already-preloaded module, so the file block — which the *runtime* packagefs does apply — comes
 too late for `xhci`. The `usb_audio` **driver** override still loads correctly regardless
 (different loader, prefers non-packaged); only `xhci` is affected.
@@ -133,21 +163,34 @@ boot** — good for evaluation, not for a permanent install.
 Bake the patched `xhci` into the `haiku` package itself so the boot loader preloads *your*
 build with no blocklist and no menu:
 
+Derive the revision and architecture the same way the scripts do, so nothing is typed in
+by hand:
+
 ```sh
 cd ~/haiku
-jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg   # needs the LIBRARY_PATH export build-driver.sh sets
+HREV=$(uname -v | awk '{print $1}')   # running revision (uname -v field 1)
+ARCH=$(getarch -p)                    # primary packaging architecture, e.g. x86_64
+export LIBRARY_PATH="%A/lib:/boot/system/non-packaged/lib:/boot/system/lib"
+
+jam -q -sHAIKU_REVISION="$HREV" haiku.hpkg
+
 # then swap it in — NEVER cp onto the live package file (it corrupts the running packagefs):
-cp generated/objects/haiku/x86_64/packaging/packages/haiku.hpkg \
+LIVE=$(ls /boot/system/packages/haiku-*-"$ARCH".hpkg)   # exactly one match expected
+cp "$LIVE" ~/haiku-system-package-backup.hpkg           # keep the stock one
+cp generated/objects/haiku/"$ARCH"/packaging/packages/haiku.hpkg \
    /boot/system/packages/.haiku-new.tmp
-mv /boot/system/packages/.haiku-new.tmp \
-   /boot/system/packages/haiku-*-x86_64.hpkg     # rename keeps the old inode live until reboot
+mv /boot/system/packages/.haiku-new.tmp "$LIVE"         # rename keeps the old inode live until reboot
 ```
+
+(The `packaging/packages` path is where the build puts system packages — see
+`build/jam/BuildSetup`, `HAIKU_PACKAGES_DIR_$(architecture)`.)
 
 Reboot: the preloaded `xhci` is now the patched one (`listimage` shows a path / the
 `[OVERRIDE-BUILD]` marker appears), persistently. This pins the machine to the hrev the
-package was built for; keep the replaced package as a backup and do not let a Haiku update
-overwrite it. This is the route for a lasting install; the `settings/packages` block and the
-non-packaged `xhci` are not needed once the package carries the patch.
+package was built for — after a system update, redo this step (and the driver build) on the
+new revision. Keep the backup copy above and do not let a Haiku update overwrite it silently.
+This is the route for a lasting install; the `settings/packages` block and the non-packaged
+`xhci` are not needed once the package carries the patch.
 
 ## 3. Verify (after reboot)
 
@@ -184,8 +227,10 @@ Basic UAC2 audio does not require this add-on; it is a resilience enhancement on
 
 ## Rollback / safety
 
-- To undo everything: `rm /boot/system/settings/packages` and reboot. The overrides in
-  `~/config/non-packaged` are then simply ignored (stock modules load again).
+- To remove the overrides: `./install-driver.sh --uninstall`, then reboot.
+- To undo everything including the blocklist: `rm /boot/system/settings/packages` and
+  reboot. The overrides in `~/config/non-packaged` are then simply ignored (stock modules
+  load again).
 - If the override fails to load, xHCI USB may be dead (USB mouse/interface gone), **but the
   system still boots** — an Ethernet/PCIe ssh session and the laptop's built-in keyboard
   survive, so you can revert over ssh.
@@ -194,7 +239,32 @@ Basic UAC2 audio does not require this add-on; it is a resilience enhancement on
 - **Never `cp` directly onto a live packaged file.** These instructions only write to the
   non-packaged tree and the `settings/packages` file, never the base package.
 
-## Rebuilding for another nightly
+## Rebuilding after a nightly update
 
-Re-run `build-driver.sh` with the new `HREV=` on that nightly (the source tree must match
-that hrev), then `install-driver.sh` again. The blocklist file does not need to change.
+Haiku nightlies move fast. On the updated system:
+
+```sh
+cd ~/haiku-kernel-usb/dist
+./build-driver.sh                 # detects the new revision itself
+./install-driver.sh               # removes the old override, installs the new one
+```
+
+Then reboot. Nothing needs editing: the revision and architecture are detected, the
+previously installed add-ons are removed before the new ones are laid down, and the
+blocklist file is revision-independent (it names paths inside the `haiku` package) so it
+stays as it is.
+
+Rebasing the source tree onto the new nightly is a **separate** decision, and not
+automatic — Haiku does not version-check kernel modules, so add-ons built a few hundred
+revisions back generally still load. Rebase when the kernel or USB stack changes something
+the driver depends on, not on a schedule. When you do:
+
+```sh
+cd ~/haiku
+git status                        # FIRST: driver work is often uncommitted here
+git commit -am "wip"              # or git stash — never pull into a dirty driver tree
+git pull
+```
+
+If you took **Option B** (patched system package), redo that step as well — a system
+update replaces `haiku*.hpkg` with the stock one, taking the patched `xhci` with it.

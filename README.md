@@ -43,8 +43,10 @@ welcome.
 - **Not upstreamed.** These are carried as a local fork; install them as a reversible
   non-packaged override (see below).
 - **ABI-tied to the hrev.** Kernel add-ons must be built on the same Haiku revision you run
-  them on. The distribution scripts target **hrev59846 x86_64**; rebuild for any other
-  nightly.
+  them on, so they must be rebuilt after every nightly update. The distribution scripts are
+  not pinned to a revision: they detect it, stamp it into the build, refuse to install a
+  build that does not match the running system, and remove the previous override when
+  re-run. Developed against **hrev59846 x86_64** and up.
 
 ## Install
 
@@ -56,8 +58,8 @@ tools, and the driver is compiled from a Haiku source checkout on the `usb-audio
 branch — so fetch all of it first (the machine must be online):
 
 ```sh
-# git + Haiku build tools (configure needs Python >= 3.10)
-pkgman install -y git jam nasm gcc_syslibs_devel zlib_devel zstd_devel python3.10
+# git; build-driver.sh installs the Haiku build tools it finds missing
+pkgman install -y git
 
 # the Haiku source with the driver changes (shallow clone; still a few GB)
 git clone -b usb-audio-uac2 --depth 1 https://github.com/rations/haiku.git ~/haiku
@@ -67,12 +69,13 @@ git clone https://github.com/rations/haiku-kernel-usb ~/haiku-kernel-usb
 ```
 
 **2. Build and install the overrides** (on the nightly you will run — the binaries are
-ABI-tied to it):
+ABI-tied to it). The revision, architecture and paths are all detected; re-running after a
+nightly update rebuilds and replaces the previous override:
 
 ```sh
 cd ~/haiku-kernel-usb/dist
-HREV=hrev59846 HAIKU_SRC=$HOME/haiku ./build-driver.sh
-./install-driver.sh
+./build-driver.sh
+./install-driver.sh          # --uninstall removes the overrides again
 ```
 
 **3. Make the `xhci` override load.** The `usb_audio` driver override loads on a plain
@@ -83,8 +86,8 @@ packagefs blocklist applies — so a plain reboot keeps running the stock `xhci`
   *Select safe mode options → Disable system components → `add-ons` → `kernel` → `boot`* → toggle
   **`xhci`** → boot. Applied before the preload, so your override wins. Repeat each boot.
 - **Persistent:** bake the patched `xhci` into the `haiku` system package
-  (`jam -q -sHAIKU_REVISION=hrev59846 haiku.hpkg`, then swap it in — never `cp` onto the
-  live package). See INSTALL.md Option B.
+  (`jam -q -sHAIKU_REVISION=$(uname -v | awk '{print $1}') haiku.hpkg`, then swap it in —
+  never `cp` onto the live package). See INSTALL.md Option B.
 
 **4. Verify:**
 
