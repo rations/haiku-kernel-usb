@@ -1,101 +1,116 @@
-# Haiku USB Audio Class 2.0 (UAC2) support
+# JackDAW stack system package (UAC2 USB audio + 32-bit Windows support)
 
-The companion / distribution repo for a set of Haiku kernel add-on changes that add
-working support for **class-compliant USB Audio Class 2.0** interfaces. Stock Haiku
-enumerates UAC2 devices but deliberately refuses to publish an audio node for them, so
-USB-2 audio interfaces are "seen but unusable." These changes make them work as real
-`/dev/audio/hmulti` devices — which is what lets JACK and the JackDAW stack use a USB
-audio interface on Haiku.
+> **Users:** install the whole stack from the
+> [JackDAW release](https://github.com/rations/jackDAW-haiku/releases) (`sh install.sh`). It
+> installs the system package built here. This repository has the build script, the tests and
+> the notes for it.
 
-The actual source changes live in a fork of the Haiku tree —
-[`rations/haiku`, branch `usb-audio-uac2`](https://github.com/rations/haiku/tree/usb-audio-uac2).
-**This** repo holds the patches, the xHCI reference material, and the build/install
-scripts (`dist/`) that turn those changes into a reversible non-packaged driver override;
-it is not itself a checkout of the OS source.
+The JackDAW stack needs three changes to Haiku's kernel and drivers:
+
+- **USB Audio Class 2.0 interfaces.** Stock Haiku enumerates UAC2 devices but refuses to
+  publish an audio node for them, so USB-2 audio interfaces are "seen but unusable". The
+  driver changes make them work as `/dev/audio/hmulti` devices that JACK can use.
+- **32-bit Windows code in 64-bit processes**, for Wine: per-team local descriptor tables and a
+  per-thread FS segment that survives context switches and signals.
+- **Self-debugging**, which copy protection such as iLok/PACE relies on. With no debugger
+  attached, a program's own trap-flag steps, `int3` and hardware breakpoints arrive as
+  `SIGTRAP`, and a thread can set its own debug registers.
+
+The source changes are in a fork of the Haiku tree:
+[`rations/haiku`](https://github.com/rations/haiku), branch **`jackdaw-stack-0.5-hrev60256`**
+(the driver alone is also on `usb-audio-uac2-hrev60256`). They are not submitted upstream.
 
 ## What changed
 
-Three add-ons, in `src/add-ons/kernel/`:
+USB audio, in `src/add-ons/kernel/` and `src/add-ons/media/`:
+- **`busses/usb/xhci`:**
+  - A larger event ring. It used to overflow under isochronous capture and kill every
+    completion on the bus.
+  - Variable-length isochronous OUT transfers, for asynchronous feedback.
+  - Frame-ID scheduling for controllers that need it.
+  - Per-endpoint error counting.
+- **`drivers/audio/usb` (`usb_audio`):**
+  - UAC2 descriptor parsing: clock source and selector units, UAC2 format types, feedback
+    endpoints.
+  - Feedback and implicit-feedback rate control, and sample-buffer headroom.
+  - Validation of user requests.
+  - Clean reattach after a replug.
+- **`media-add-ons/multi_audio`:** survives device failure, and recovers the audio node when
+  the device returns.
 
-- **`busses/usb/xhci`** — enlarged the xHCI event ring (it previously overflowed
-  deterministically under isochronous audio capture and killed every completion on the
-  bus) and added a variable-length isochronous **OUT** transfer path for asynchronous
-  feedback (e.g. 24 audio frames in one microframe, 25 in the next).
-- **`drivers/audio/usb` (`usb_audio`)** — lifted the `bcdUSB >= 0x200` guard and
-  implemented UAC2 descriptor parsing (clock source/selector units, UAC2 format types,
-  feedback endpoints), sample-buffer headroom, input validation on user requests, and
-  clean reattach after replug.
-- **`media/media-add-ons/multi_audio` (`hmulti_audio.media_addon`)** — survives device
-  failure and recovers the audio node when the device returns.
+Kernel, in `src/system/kernel/arch/x86/`:
+- **Per-team LDT:**
+  - `THREAD_SET_LDT_ENTRY`, `THREAD_SET_FS_BASE`, `THREAD_GET_FS_BASE` and
+    `THREAD_GET_GS_BASE`, next to the existing `THREAD_SET_GS_BASE`.
+  - FS, DS and ES are kept per thread.
+  - Signal handlers always run as 64-bit code. Sigreturn checks the segment selectors before
+    `iret`, which also closes a privileged-CS hole.
+- **User traps:** with no team debugger, `x86_handle_debug_exception` and the `int3` handler
+  send `SIGTRAP`. They used to drop the trap or stop the team in the debug_server.
+- **`THREAD_SET_DEBUG_REGISTERS`:** a thread's own hardware breakpoints. DR6 is reported in the
+  signal context, and the resume flag survives sigreturn.
+
+Build: `HAIKU_PACKAGE_REVISION` (default 1) sets the system packages' revision.
+
+## The package
+
+The changes ship as Haiku's own `haiku` and `haiku_devel` packages, rebuilt for one nightly
+with revision `-2`. That makes them an ordinary update to the official `-1` packages of the
+same nightly:
+- pkgman installs them in a transaction.
+- The boot menu's *Select state* goes back to the official packages.
+- The Haiku repository must stay pinned to that nightly, because a newer official `haiku`
+  package would replace this one.
+
+Building, on the nightly the package is for:
+
+```sh
+pkgman install -y git
+git clone -b jackdaw-stack-0.5-hrev60256 https://github.com/rations/haiku.git ~/haiku
+git clone https://github.com/rations/haiku-kernel-usb ~/haiku-kernel-usb
+sh ~/haiku-kernel-usb/dist/build-system-package.sh ~/haiku
+```
+
+`build-system-package.sh` installs the missing build tools and configures the tree. It builds
+both packages with SSL enabled, which pkgman's HTTPS needs, and checks the result. The
+packages end up in `~/haiku/generated/objects/haiku/x86_64/packaging/packages/`.
+
+**For a newer nightly:**
+1. Rebase the release branch onto the new `hrev` tag.
+2. Build on that nightly.
+3. Run the tests below.
+
+The changes touch little outside the files listed above. Moving from hrev60247 to hrev60256
+had no conflicts.
+
+## Tests
+
+- `tests/wow64_ldt_test.c` covers the kernel side: 32-bit code, context switches, signals,
+  forged sigreturn frames, rejected descriptors, fork/exec, 32-bit syscall instructions, user
+  traps and hardware breakpoints. All 11 pass on hrev60256.
+- The Windows-side tests (traps, breakpoints, PACE's probe) are in
+  [haiku-wine-port](https://github.com/rations/haiku-wine-port-jackdaw)'s `tests/`.
 
 ## Verified hardware
 
-Tested on real hardware with two class-compliant UAC2 interfaces:
+- Behringer UMC204HD (`1397:0508`)
+- XMOS-based NUX USB Audio 2.0 (`20b1:2018`)
 
-- **Behringer UMC204HD** (USB ID `1397:0508`)
-- **XMOS-based NUX USB Audio 2.0** (USB ID `20b1:2018`)
+Other class-compliant UAC2 devices are expected to work but are untested. Reports are welcome.
 
-Other class-compliant UAC2 devices are expected to work but are **untested** — reports
-welcome.
+## Known limitations
 
-## Status / caveats
+- The package leaves out the Haiku logo artwork and the Haiku3d demo, which only official
+  builds include.
+- It also leaves out the 32-bit BIOS and PXE boot loaders that Installer copies to new disks,
+  because the native x86_64 toolchain cannot link them. The system itself boots normally on
+  BIOS and UEFI.
+- The system package fits one nightly only. Haiku updates wait for a rebuilt package.
 
-- **Not upstreamed.** These are carried as a local fork; install them as a reversible
-  non-packaged override (see below).
-- **ABI-tied to the hrev.** Kernel add-ons must be built on the same Haiku revision you run
-  them on, so they must be rebuilt after every nightly update. The distribution scripts are
-  not pinned to a revision: they detect it, stamp it into the build, refuse to install a
-  build that does not match the running system, and remove the previous override when
-  re-run. Developed against **hrev59846 x86_64** and up.
+## The older driver-only route
 
-## Install
-
-Full procedure — build, install, the blocklist rationale, verification, and rollback — is in
-**[dist/INSTALL.md](dist/INSTALL.md)**. The short version, starting from a fresh Haiku install:
-
-**1. Get the tools and sources.** A stock Haiku nightly has neither `git` nor the build
-tools, and the driver is compiled from a Haiku source checkout on the `usb-audio-uac2`
-branch — so fetch all of it first (the machine must be online):
-
-```sh
-# git; build-driver.sh installs the Haiku build tools it finds missing
-pkgman install -y git
-
-# the Haiku source with the driver changes (shallow clone; still a few GB)
-git clone -b usb-audio-uac2 --depth 1 https://github.com/rations/haiku.git ~/haiku
-
-# this repo (the build/install scripts)
-git clone https://github.com/rations/haiku-kernel-usb ~/haiku-kernel-usb
-```
-
-**2. Build and install the overrides** (on the nightly you will run — the binaries are
-ABI-tied to it). The revision, architecture and paths are all detected; re-running after a
-nightly update rebuilds and replaces the previous override:
-
-```sh
-cd ~/haiku-kernel-usb/dist
-./build-driver.sh
-./install-driver.sh          # --uninstall removes the overrides again
-```
-
-**3. Make the `xhci` override load.** The `usb_audio` driver override loads on a plain
-reboot, but `xhci` is a bus-manager module that the boot loader **preloads** before the
-packagefs blocklist applies — so a plain reboot keeps running the stock `xhci`. Pick one:
-
-- **Per boot (evaluation):** reboot and tap **Space** at power-on to reach the boot menu →
-  *Select safe mode options → Disable system components → `add-ons` → `kernel` → `boot`* → toggle
-  **`xhci`** → boot. Applied before the preload, so your override wins. Repeat each boot.
-- **Persistent:** bake the patched `xhci` into the `haiku` system package
-  (`jam -q -sHAIKU_REVISION=$(uname -v | awk '{print $1}') haiku.hpkg`, then swap it in —
-  never `cp` onto the live package). See INSTALL.md Option B.
-
-**4. Verify:**
-
-```sh
-listusb                       # your UAC2 interface enumerates
-ls /dev/audio/hmulti/          # an audio node appears
-listimage | grep xhci          # the override shows a PATH (stock preload shows none)
-```
-
-This is the foundation of the audio stack; once USB audio works, install the JACK server
-and the rest (jack-port-haiku → plugins → JackDAW).
+Before release 0.5 the driver was installed as a non-packaged override (`dist/build-driver.sh`,
+`dist/install-driver.sh`, [dist/INSTALL.md](dist/INSTALL.md)). That route also needed `xhci` to
+be disabled in the boot menu on every boot. It is kept for reference and for the driver alone.
+The release installer uses `install-driver.sh --uninstall` to remove an old override before
+installing the system package.
