@@ -24,7 +24,12 @@ __pycache__/
 *.log
 generated/
 
+# Syslogs pulled off a test machine by pull-log.sh (large, machine-specific)
+/logs/
+/loaders/
 # Third-party reference material (the xHCI spec is copyrighted and large — link,
 # don't vendor it). Keep only the stub that says where to get it.
 /refs/*
 !/refs/README.md
+pull-log.sh
+swap-loader.sh

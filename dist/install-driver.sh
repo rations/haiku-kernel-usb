@@ -162,13 +162,29 @@ if [ -f "$STAMP" ]; then
 	printf 'installed=%s\n' "$(date)" >> "$RECORD"
 fi
 
+# --- a system non-packaged xhci WINS over ours ---------------------------------
+# xhci is a module, and the module manager searches system packaged, system
+# non-packaged, user packaged, then user non-packaged (kernel/module.cpp
+# kModulePaths). With the packaged copy blocked, a copy in system non-packaged is the
+# one that loads and ours is silently ignored. Media-OS leaves exactly that behind when
+# its packages are removed without running its uninstall.sh. Report, do not delete:
+# this script did not put it there.
+SYSTEM_XHCI="/boot/system/non-packaged/add-ons/kernel/busses/usb/xhci"
+if [ -e "$SYSTEM_XHCI" ]; then
+	echo "!! another xhci exists at $SYSTEM_XHCI" >&2
+	echo "   Kernel modules are searched there BEFORE ~/config/non-packaged, so it would" >&2
+	echo "   load instead of the override just installed. Remove it first (if it is" >&2
+	echo "   Media-OS: /boot/system/non-packaged/data/mediaos-usb/uninstall.sh)." >&2
+	[ -n "$FORCE" ] || exit 1
+	echo ">> FORCE set — continuing anyway."
+fi
+
 # --- warn about copies in the other override locations ------------------------
 # kDriverPaths order is: user non-packaged, user packaged, system non-packaged, system
 # packaged. Ours (user non-packaged) wins, but a stale copy elsewhere is confusing and
 # will be loaded if this one is ever removed. Report, do not delete: this script did
 # not put them there.
 for other in "/boot/system/non-packaged/add-ons/kernel/drivers/bin/usb_audio" \
-	"/boot/system/non-packaged/add-ons/kernel/busses/usb/xhci" \
 	"/boot/system/non-packaged/add-ons/media/hmulti_audio.media_addon" \
 	"$HOME/config/add-ons/kernel/drivers/bin/usb_audio"; do
 	if [ -e "$other" ]; then
