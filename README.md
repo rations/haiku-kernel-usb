@@ -18,7 +18,12 @@ The JackDAW stack needs three changes to Haiku's kernel and drivers:
 
 The source changes are in a fork of the Haiku tree:
 [`rations/haiku`](https://github.com/rations/haiku), branch **`jackdaw-stack-0.5-hrev60256`**
-(the driver alone is also on `usb-audio-uac2-hrev60256`). They are not submitted upstream.
+(the driver alone is also on `usb-audio-uac2`). They are not submitted upstream.
+
+The USB stack in it (`bus_managers/usb`, `busses/usb` and `drivers/audio/usb`) is the one of
+hrev59901 with the UAC2 work, from branch `usb-audio-uac2`, not hrev60256's own. With the USB
+stack of hrev60256 a UAC2 interface crackles after about a minute of playback, without xruns.
+That version is kept on `jackdaw-stack-0.5-hrev60256-upstream-usb`.
 
 ## What changed
 

@@ -13,7 +13,7 @@
 # The packages land in <tree>/generated/objects/haiku/x86_64/packaging/packages.
 # The log is ~/system-package-build.log.
 TREE=${1:-$HOME/haiku}
-REVISION=2
+REVISION=3
 LOG="$HOME/system-package-build.log"
 HREV=$(uname -v | awk '{print $1}')
 
